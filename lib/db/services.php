@@ -620,4 +620,11 @@ $services = array(
         'shortname' => MOODLE_OFFICIAL_MOBILE_SERVICE,
         'downloadfiles' => 1
     ),
+	'Lightwork' => array(
+		'functions' => array (
+			'mod_assign_export_submissions'),
+		'restrictedusers' => 0,
+		'enabled' => 1,
+		'shortname' => 'Lightwork'
+	),
 );
