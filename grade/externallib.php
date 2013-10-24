@@ -442,6 +442,120 @@ class core_grading_external extends external_api {
         );
     }
 
+    /**
+     * Describes the parameters for create_gradingform_instances
+     * @return external_function_parameters
+     * @since Moodle 2.6
+     */
+    public static function create_gradingform_instances_parameters() {
+        global $CFG;
+        $instance = array();
+        $instance['raterid']           = new external_value(PARAM_INT, 'rater id');
+        $instance['itemid']            = new external_value(PARAM_INT, 'item id');
+        foreach (self::get_grading_methods() as $method) {
+            require_once($CFG->dirroot.'/grade/grading/form/'.$method.'/lib.php');
+            $details  = call_user_func('gradingform_'.$method.'_controller::get_external_instance_filling_details');
+            if ($details != null) {
+                $items = array();
+                foreach ($details as $key => $value) {
+                    $details[$key]->required = VALUE_OPTIONAL;
+                    unset($details[$key]->content->keys['id']);
+                    $items[$key] = new external_multiple_structure (new external_single_structure(
+                        array(
+                            'criterionid'    => new external_value(PARAM_INT, 'criterion id'),
+                            'fillings' => $value
+                        )
+                    ));
+                }
+                $instance[$method] = new external_single_structure($items, 'items', VALUE_OPTIONAL);
+            }
+        }
+        return new external_function_parameters(
+            array(
+                'definitionid' => new external_value(PARAM_INT, 'definition id'),
+                'instances' => new external_multiple_structure(new external_single_structure($instance))
+            )
+        );
+    }
+
+    /**
+     * Creates or gets an active instance and populates the criteria/fillings. 
+     *
+     * @param int $definitionid
+     * @param int $instances the grading form instances to be inserted as the active instance
+     * @return array of grading instances with fillings for the definition id
+     * @since Moodle 2.6
+     */
+    public static function create_gradingform_instances($definitionid, $instances) {
+        global $DB, $CFG;
+        require_once("$CFG->dirroot/grade/grading/form/lib.php");
+        $params = self::validate_parameters(self::create_gradingform_instances_parameters(),
+                      array('definitionid' => $definitionid,
+                            'instances' => $instances));
+
+        $definition = $DB->get_record('grading_definitions',
+                                      array('id' => $params['definitionid']),
+                                      'areaid,method', MUST_EXIST);
+        $area = $DB->get_record('grading_areas',
+                                 array('id' => $definition->areaid),
+                                 'contextid,component', MUST_EXIST);
+
+        $context = context::instance_by_id($area->contextid);
+        require_capability('moodle/grade:managegradingforms', $context);
+
+        $gradingmanager = get_grading_manager($definition->areaid);
+        $controller = $gradingmanager->get_controller($definition->method);
+
+        $results = array();
+        foreach ($params['instances'] as $instancedata) {
+            $instance = $controller->get_or_create_instance(null, $instancedata['raterid'], $instancedata['itemid']);
+
+            $elementvalue = array();
+            $elementvalue['itemid'] = $instancedata['itemid'];
+            $elementvalue['raterid'] = $instancedata['raterid'];
+            foreach ($instancedata[$definition->method] as $key => $criteria) {
+                foreach ($criteria as $criterion) {                   
+                    $details = array();
+                    foreach ($criterion['fillings'] as $filling) {
+                        $details[$criterion['criterionid']] = $filling;
+                    }
+                    $elementvalue[$key] = $details;    
+                }                    
+            }
+ 
+            $instance->submit_and_get_grade($elementvalue, $elementvalue['itemid']);
+            $result = array();
+            if ($instance !== null) {
+                $result['raterid'] = $instance->get_data('raterid');
+                $result['itemid']  = $instance->get_data('itemid');
+                $result['id']      = $instance->get_id();
+            } else {
+                $result['raterid'] = $instancedata['raterid'];
+                $result['itemid'] =  $instancedata['itemid'];
+                $result['errormessage'] = 'Could not create instance';
+            }
+            $results[] = $result;
+        }
+        return $results;
+    }
+
+    /**
+     * @return external_multiple_structure
+     * @since Moodle 2.6
+     */
+    public static function create_gradingform_instances_returns() {
+        return new external_multiple_structure(
+            new external_single_structure(
+                array(
+                    'id' => new external_value(PARAM_INT, 'id of instance if successful', VALUE_OPTIONAL),
+                    'raterid' => new external_value(PARAM_INT, 'rater id of instance'),
+                    'itemid' => new external_value(PARAM_INT, 'item id of instance'),
+                    'errormessage' => new external_value(PARAM_TEXT, 'error message - if failed', VALUE_OPTIONAL)
+                )
+            )
+        );
+    }
+
 }
 
 /**

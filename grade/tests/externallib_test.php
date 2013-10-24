@@ -306,4 +306,133 @@ class core_grading_externallib_testcase extends externallib_advanced_testcase {
         $this->assertEquals($levelid, $criteria[$criterionid]['levelid']);
         $this->assertEquals('excellent work', $criteria[$criterionid]['remark']);
     }
+
+    /**
+     * Test create_gradingform_instances
+     */
+    public function test_create_gradingform_instances() {
+        global $DB, $USER;
+
+        $this->resetAfterTest(true);
+        // Create a course and assignment.
+        $coursedata['idnumber'] = 'idnumbercourse';
+        $coursedata['fullname'] = 'Lightwork Course';
+        $coursedata['summary'] = 'Lightwork Course description';
+        $coursedata['summaryformat'] = FORMAT_MOODLE;
+        $course = self::getDataGenerator()->create_course($coursedata);
+
+        $assigndata['course'] = $course->id;
+        $assigndata['name'] = 'lightwork assignment';
+
+        $assign = self::getDataGenerator()->create_module('assign', $assigndata);
+
+        // Create manual enrolment record.
+        $manualenroldata['enrol'] = 'manual';
+        $manualenroldata['status'] = 0;
+        $manualenroldata['courseid'] = $course->id;
+        $enrolid = $DB->insert_record('enrol', $manualenroldata);
+
+        // Create a teacher and give them capabilities.
+        $coursecontext = context_course::instance($course->id);
+        $roleid = $this->assignUserCapability('moodle/course:viewparticipants', $coursecontext->id, 3);
+        $modulecontext = context_module::instance($assign->id);
+        $this->assignUserCapability('mod/assign:grade', $modulecontext->id, $roleid);
+
+        // Create the teacher's enrolment record.
+        $userenrolmentdata['status'] = 0;
+        $userenrolmentdata['enrolid'] = $enrolid;
+        $userenrolmentdata['userid'] = $USER->id;
+        $DB->insert_record('user_enrolments', $userenrolmentdata);
+
+        // Create a student with an assignment grade record.
+        $student = self::getDataGenerator()->create_user();
+        $assigngrade = new stdClass();
+        $assigngrade->assignment = $assign->id;
+        $assigngrade->userid = $student->id;
+        $assigngrade->timecreated = time();
+        $assigngrade->timemodified = $assigngrade->timecreated;
+        $assigngrade->grader = $USER->id;
+        $assigngrade->attemptnumber = 0;
+        $gid = $DB->insert_record('assign_grades', $assigngrade);
+        
+        // Create a grading area.
+        $gradingarea = array(
+            'contextid' => $modulecontext->id,
+            'component' => 'mod_assign',
+            'areaname' => 'submissions',
+            'activemethod' => 'rubric'
+        );
+        $areaid = $DB->insert_record('grading_areas', $gradingarea);
+
+        // Create a rubric grading definition.
+        $rubricdefinition = array (
+            'areaid' => $areaid,
+            'method' => 'rubric',
+            'name' => 'test',
+            'status' => 20,
+            'copiedfromid' => 1,
+            'timecreated' => 1,
+            'usercreated' => $USER->id,
+            'timemodified' => 1,
+            'usermodified' => $USER->id,
+            'timecopied' => 0
+        );
+        $definitionid = $DB->insert_record('grading_definitions', $rubricdefinition);
+
+        // Create a criterion with a level.
+        $rubriccriteria = array (
+            'definitionid' => $definitionid,
+            'sortorder' => 1,
+            'description' => 'Demonstrate an understanding of disease control',
+            'descriptionformat' => 0
+        );
+        $criterionid = $DB->insert_record('gradingform_rubric_criteria', $rubriccriteria);
+        $rubriclevel = array (
+            'criterionid' => $criterionid,
+            'score' => 50,
+            'definition' => 'pass',
+            'definitionformat' => 0
+        );
+        $levelid = $DB->insert_record('gradingform_rubric_levels', $rubriclevel);
+
+        // Create instance and filling data
+        $instances = array();
+        $filling = array (
+            'criterionid' => $criterionid,
+            'levelid' => $levelid,
+            'remark' => 'well done',
+            'remarkformat' => 0
+        );
+        $fillings = array($filling);
+        $fillingswithcriterion = array(
+            'criterionid' => $criterionid,
+            'fillings' => $fillings
+        );
+        $instance = array (
+            'raterid' => $USER->id,
+            'itemid' => $gid,
+            'rubric' => array ('criteria' => array ($fillingswithcriterion))
+        );
+        $instances[] = $instance;
+        
+        // Call the external function.
+        $results = core_grading_external::create_gradingform_instances($definitionid, $instances);
+        $results = external_api::clean_returnvalue(core_grading_external::create_gradingform_instances_returns(), $results);
+
+        $this->assertEquals(1, count($results));
+        $this->assertEquals($USER->id, $results[0]['raterid']);
+        $this->assertEquals($gid, $results[0]['itemid']);
+        $this->assertNotNull($results[0]['id']);
+        $createdinstance = $DB->get_record('grading_instances', array('id' => $results[0]['id']));
+        $this->assertNotNull($createdinstance);
+        $this->assertEquals($USER->id, $createdinstance->raterid);
+        $this->assertEquals($gid, $createdinstance->itemid);
+        $this->assertEquals(1, $createdinstance->status);
+        $createdfilling = $DB->get_record('gradingform_rubric_fillings',
+                          array('instanceid' => $results[0]['id']), 'id,criterionid,levelid,remark');
+        $this->assertNotNull($createdfilling);
+        $this->assertEquals($criterionid, $createdfilling->criterionid);
+        $this->assertEquals($levelid, $createdfilling->levelid);
+        $this->assertEquals('well done', $createdfilling->remark);
+    }
 }

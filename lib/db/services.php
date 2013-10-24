@@ -817,6 +817,15 @@ $functions = array(
         'type'        => 'read'
     ),
 
+    'core_grading_create_gradingform_instances' => array(
+        'classname'   => 'core_grading_external',
+        'methodname'  => 'create_gradingform_instances',
+        'classpath'   => 'grade/externallib.php',
+        'description' => 'Create grading form instances',
+        'type'        => 'write',
+        'capabilities'=> 'moodle/grade:managegradingforms',
+    ),
+
     // === webservice related functions ===
 
     'moodle_webservice_get_siteinfo' => array(
